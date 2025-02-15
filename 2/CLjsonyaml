@@ -1,0 +1,545 @@
+import yaml
+import os
+import json
+import psycopg2
+import re
+from datetime import datetime
+
+
+class Client:
+    @staticmethod
+    def validate(field_name, field_value, expected_type):
+        if not isinstance(field_value, expected_type):
+            print(f"Поле '{field_name}' должно быть типа {expected_type}.")
+            return False
+        if expected_type is str and not field_value:
+            print(f"Поле '{field_name}' не может быть пустым.")
+            return False
+        if field_name == "ФИО":
+            if not re.fullmatch(r"[А-Яа-яЁё]+\s[А-Яа-яЁё]+\s[А-Яа-яЁё]+", field_value):
+                print("ФИО должно быть в формате: Фамилия Имя Отчество")
+                return False
+        if field_name == "Телефон" and not re.match(r"^\+\d{11}$", field_value):
+            print("Телефон должен быть в формате: +7XXXXXXXXXX")
+            return False
+        if field_name == "Водительские права" and not re.match(r"^\d{10}$", field_value):
+            print("Номер прав должен содержать 10 цифр")
+            return False
+        return True
+
+    def __init__(self, id, full_name, address, phone, license_number):
+        self._id = id
+        if not Client.validate("ФИО", full_name, str):
+            raise ValueError("Некорректные данные")
+        self._full_name = full_name
+        if not Client.validate("Адрес", address, str):
+            raise ValueError("Некорректные данные")
+        self._address = address
+        if not Client.validate("Телефон", phone, str):
+            raise ValueError("Некорректные данные")
+        self._phone = phone
+        if not Client.validate("Водительские права", license_number, str):
+            raise ValueError("Некорректные данные")
+        self._license_number = license_number
+
+    def get_id(self):
+        return self._id
+
+    def set_id(self, id):
+        self._id = id
+
+    def get_full_name(self):
+        return self._full_name
+
+    def set_full_name(self, full_name):
+        self._full_name = full_name
+
+    def get_address(self):
+        return self._address
+
+    def set_address(self, address):
+        self._address = address
+
+    def set_phone(self, phone):
+        self._phone = phone
+
+    def get_phone(self):
+        return self._phone
+
+    def get_license_number(self):
+        return self._license_number
+
+    def set_license_number(self, license_number):
+        self._license_number = license_number
+
+    def __str__(self):
+        return (f"Client(ID={self._id}, ФИО='{self._full_name}', "
+                f"Адрес='{self._address}', Телефон='{self._phone}', "
+                f"Права='{self._license_number}')")
+
+    def short_version(self):
+        return f"Client ID: {self._id}, ФИО: {self._full_name}"
+
+    def __eq__(self,other):
+        if not isinstance(other, Client):
+            return False
+        return self._id == other._id
+
+class ClientShort:
+    def __init__(self, client):
+        if not isinstance(client, Client):
+            raise TypeError("Аргумент должен быть объектом класса Client.")
+        self.id = client.get_id()
+        name_parts = client.get_full_name().split()
+        if len(name_parts) >=2:
+            self.full_name=name_parts[-1][0]+". "+ name_parts[0]
+        else:
+            self.fullname = client.get_full_name()
+
+            self.phone = client.get_phone()
+
+    def __str__(self):
+        return f"ClientShort(ID={self.id}, Имя={self.full_name}, Телефон={self.phone})"
+
+
+class ClientRep:
+    def __init__(self, filepath=""):
+        self.filepath = filepath
+        self.clients = []
+        self.next_id = 1
+        if os.path.exists(self.filepath):
+            self.load_data()
+
+    def load_data(self):
+        pass
+
+    def save_data(self):
+        pass
+
+    def get_all_clients(self):
+        return self.clients
+
+    def add_client(self, full_name, address, phone, license_number):
+        new_client = Client(self.next_id, full_name, address, phone, license_number)
+        self.clients.append(new_client)
+        self.next_id += 1
+        self.save_data()
+        return True
+
+    def delete_client(self, client_id):
+        self.clients = [c for c in self.clients if c.get_id() != client_id]
+        self.save_data()
+        return True
+
+    def get_client_by_id(self, client_id):
+        for client in self.clients:
+            if client.get_id() == client_id:
+                return client
+        return None
+
+    def get_k_n_short_list(self, k, n):
+        return [ClientShort(c) for c in self.clients[k - 1:k + n - 1]]
+
+    def sort_by_field(self, field):
+        try:
+            self.clients.sort(key=lambda x: getattr(x, f"get_{field.lower()}")())
+        except AttributeError:
+            print(f"Поле '{field}' не найдено или у него нет геттера.")
+
+    def get_count(self):
+        return len(self.clients)
+
+    def replace_client(self, client_id, full_name, address, phone, license_number):
+        for i, client in enumerate(self.clients):
+            if client.get_id() == client_id:
+                self.clients[i] = Client(client_id, full_name, address, phone, license_number)
+                self.save_data()
+                return True
+        return False
+
+
+class ClientRepJSON(ClientRep):
+    def __init__(self, filepath="clients.json"):
+        super().__init__(filepath)
+
+    def load_data(self):
+        try:
+            with open(self.filepath, "r") as f:
+                data = json.load(f)
+                for item in data:
+                    self.clients.append(Client(*item.values()))
+                self.next_id = max(c.get_id() for c in self.clients) + 1 if self.clients else 1
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            print(f"Ошибка загрузки JSON: {e}")
+
+    def save_data(self):
+        try:
+            data = [vars(b) for b in self.clients]
+            with open(self.filepath, "w") as f:
+                json.dump(data, f, ensure_ascii=False, indent=4)
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            print(f"Ошибка при сохранении в JSON: {e}")
+
+class ClientRepYAML(ClientRep):
+    def __init__(self, filepath="client.yaml"):
+        super().__init__(filepath)
+
+    def load_data(self):
+        try:
+            with open(self.filepath, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+                if data:
+                    for client_data in data:
+                        self.clients.append(Client(*client_data.values()))
+                    self.next_id = max(b.get_id() for b in self.clients) + 1 if self.clients else 1
+        except (FileNotFoundError, yaml.YAMLError) as e:
+            print(f"Ошибка при загрузке из YAML: {e}")
+
+    def save_data(self):
+        try:
+            data = [vars(b) for b in self.clients]
+            with open(self.filepath, "w", encoding="utf-8") as f:
+                yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
+        except (FileNotFoundError, yaml.YAMLError) as e:
+            print(f"Ошибка при сохранении в YAML: {e}")
+
+class DatabaseConnector:
+    __instance = None
+
+    @staticmethod
+    def get_instance(host, user, password, database, port=5432):
+        if DatabaseConnector.__instance is None:
+            DatabaseConnector(host, user, password, database, port)
+        return DatabaseConnector.__instance
+
+    def __init__(self, host, user, password, database, port=5432):
+        if DatabaseConnector.__instance is not None:
+            raise Exception("Это паттерн 'Одиночка'")
+        else:
+            DatabaseConnector.__instance = self
+            self.connection = None
+            self.cursor = None
+            try:
+                self.connection = psycopg2.connect(
+                    host=host,
+                    user=user,
+                    password=password,
+                    database=database,
+                    port=port
+                )
+                self.cursor = self.connection.cursor()
+            except psycopg2.Error as e:
+                print(f"Ошибка подключения к базе данных PostgreSQL: {e}")
+
+    def execute_query(self, query, params=None):
+        try:
+            if params:
+                self.cursor.execute(query, params)
+            else:
+                self.cursor.execute(query)
+            self.connection.commit()
+            return self.cursor
+        except psycopg2.Error as e:
+            print(f"Ошибка выполнения запроса: {e}")
+            if self.connection:
+                self.connection.rollback()
+            return None
+
+    def close(self):
+        if self.connection:
+            self.cursor.close()
+            self.connection.close()
+
+
+class ClientRepDB:
+    def __init__(self, db_connector):
+        self.db_connector = db_connector
+        self._initialize_db()
+
+    def _initialize_db(self):
+        cursor = self.db_connector.execute_query("""
+            CREATE TABLE IF NOT EXISTS Clients (
+                ID SERIAL PRIMARY KEY,
+                FullName VARCHAR(255) NOT NULL CHECK (FullName ~* '^[а-яА-Яa-zA-Z\\s]+$'),
+                Address TEXT NOT NULL,
+                Phone VARCHAR(20) NOT NULL UNIQUE CHECK (Phone ~* '^\\+\\d{11}$'),
+                LicenseNumber VARCHAR(20) NOT NULL UNIQUE CHECK (LicenseNumber ~* '^\\d{10}$')
+            )
+        """)
+
+        if cursor:
+            print("База данных PostgreSQL и таблица 'Clients' успешно созданы.")
+
+    def get_client_by_id(self, client_id):
+        cursor = self.db_connector.execute_query(
+            "SELECT * FROM Clients WHERE ID = %s",
+            (client_id,)
+        )
+        if cursor:
+            result = cursor.fetchone()
+            if result:
+                return Client(*result)
+        return None
+
+    def get_all_clients(self):
+        cursor = self.db_connector.execute_query("SELECT * FROM Clients")
+        if cursor:
+            return [Client(*row) for row in cursor.fetchall()]
+        return []
+
+    def add_client(self, client: Client):
+        if not isinstance(client, Client):
+            raise TypeError("Аргумент должен быть объектом класса Client.")
+
+        query = """INSERT INTO Clients (FullName, Address, Phone, LicenseNumber) 
+                 VALUES (%s, %s, %s, %s) RETURNING ID"""
+        cursor = self.db_connector.execute_query(query, (
+            client.get_full_name(),
+            client.get_address(),
+            client.get_phone(),
+            client.get_license_number()
+        ))
+
+        if cursor:
+            result = cursor.fetchone()
+            client.set_id(result[0])
+            return client
+        return None
+
+    def replace_client(self, client: Client):
+        if not isinstance(client, Client):
+            raise TypeError("Аргумент должен быть объектом класса Client.")
+
+        query = """UPDATE Clients 
+                 SET FullName = %s, 
+                     Address = %s, 
+                     Phone = %s, 
+                     LicenseNumber = %s 
+                 WHERE ID = %s"""
+        cursor = self.db_connector.execute_query(query, (
+            client.get_full_name(),
+            client.get_address(),
+            client.get_phone(),
+            client.get_license_number(),
+            client.get_id()
+        ))
+
+        if cursor and cursor.rowcount > 0:
+            print("Данные клиента обновлены.")
+        else:
+            print("Клиент с таким ID не найден или данные не изменены.")
+
+    def delete_client(self, client_id):
+        try:
+            cursor = self.db_connector.execute_query(
+                "DELETE FROM Clients WHERE ID = %s",
+                (client_id,)
+            )
+            return cursor.rowcount > 0 if cursor else False
+        except Exception as e:
+            print(f"Ошибка при удалении клиента: {e}")
+            return False
+
+    def get_count(self):
+        cursor = self.db_connector.execute_query("SELECT COUNT(*) FROM Clients")
+        if cursor:
+            result = cursor.fetchone()
+            return result[0] if result else 0
+        return 0
+
+    def get_k_n_short_list(self, k, n):
+        offset = k - 1
+        limit = n
+        cursor = self.db_connector.execute_query(
+            "SELECT * FROM Clients LIMIT %s OFFSET %s",
+            (limit, offset)
+        )
+        if cursor:
+            return [ClientShort(Client(*row)) for row in cursor.fetchall()]
+        return []
+
+    class ClientRepDBAdapter(ClientRep):
+        def __init__(self, db_connector):
+            super().__init__()
+            self.db_rep = СlientRepDB(db_connector)
+            self.clients = self.db_rep.get_all_clients()
+            self.next_id = self.db_rep.get_count() + 1 if self.db_rep.get_count() > 0 else 1
+
+        def add_client(self, full_name, address, phone, license_number):
+            try:
+                new_client = Client(self.next_id, full_name, address, phone, license_number)
+                added_client = self.db_rep.add_client(new_client)
+                if added_client:
+                    self.clients.append(added_client)
+                    self.next_id = self.db_rep.get_count() + 1
+                    return True
+                return False
+            except (psycopg2.Error, ValueError) as e:
+                print(f"Ошибка при добавлении Клиента: {e}")
+                return False
+
+        def delete_client(self, client_id):
+            result = self.db_rep.delete_client(client_id)
+            self.clients = self.db_rep.get_all_clients()
+            self.next_id = self.db_rep.get_count() + 1 if self.db_rep.get_count() > 0 else 1
+            return result
+
+        def get_client_by_id(self, client_id):
+            client_data = self.db_rep.get_client_by_id(client_id)
+            return client_data
+
+        def get_all_clients(self):
+            return self.db_rep.get_all_clients()
+
+        def get_k_n_short_list(self, k, n):
+            short_list_data = self.db_rep.get_k_n_short_list(k, n)
+            return short_list_data
+
+        def sort_by_field(self, field):
+            clients = self.get_all_clients()
+            try:
+                clients.sort(key=lambda x: getattr(x, f"_{field}"))
+                self.clients = clients
+            except AttributeError:
+                print(f"Поле '{field}' не найдено.")
+
+        def replace_client(self, client_id, full_name, address, phone,license_number):
+            client = self.get_client_by_id(client_id)
+            if client:
+                client.set_full_name(full_name)
+                client.set_address(address)
+                client.set_phone(phone)
+                client.set_license_number(license_number)
+                self.db_rep.replace_client(client)
+                self.clients = self.db_rep.get_all_clients()
+                print("Данные Клиента изменены")
+            else:
+                print("Клиент не найден")
+
+        def get_count(self):
+            return self.db_rep.get_count()
+
+        def save_data(self):
+            pass
+
+
+def run_operations(repository):
+    while True:
+        print("\nМеню:")
+        print("1. Вывести Клиентов")
+        print("2. Добавить Клиента")
+        print("3. Удалить Клиента")
+        print("4. Изменить данные Клиента")
+        print("5. Найти Клиента по ID")
+        print("6. Получить k-n короткий список")
+        print("7. Вывести кол-во Клиентов")
+        print("8. Выход")
+
+        choice = input("Выберите действие: ")
+
+        try:
+            if choice == "1":
+                print("\nКлиенты:")
+                for client in repository.get_all_clients():  # Исправлено
+                    print(client)
+
+            elif choice == "2":
+                while True:
+                    try:
+                        full_name = input("Введите ФИО: ")
+                        address = input("Введите адрес: ")
+                        phone = input("Введите телефон (+7XXXXXXXXXX): ")
+                        license_number = input("Введите номер прав (10 цифр): ")
+                        break
+                    except ValueError as e:
+                        print(f"Ошибка валидации: {e}")
+
+                if repository.add_client(full_name, address, phone, license_number):  # Исправлено
+                    print("Клиент добавлен")
+                else:
+                    print("Ошибка при добавлении Клиента")
+
+            elif choice == "3":
+                client_id = int(input("Введите ID Клиента для удаления: "))
+                if repository.delete_client(client_id):  # Исправлено
+                    print("Клиент удален")
+                else:
+                    print("Клиент не найден или ошибка при удалении")
+
+            elif choice == "4":
+                client_id = int(input("Введите ID Клиента для изменения: "))
+                client = repository.get_client_by_id(client_id)  # Исправлено
+                if client:
+                    full_name = input(f"Новое ФИО ({client.get_full_name()}): ") or client.get_full_name()
+                    address = input(f"Новый адрес ({client.get_address()}): ") or client.get_address()
+                    phone = input(f"Новый телефон ({client.get_phone()}): ") or client.get_phone()
+                    license_number = input(
+                        f"Новый номер прав ({client.get_license_number()}): ") or client.get_license_number()
+
+                    if repository.replace_client(client_id, full_name, address, phone, license_number):  # Исправлено
+                        print("Данные Клиента изменены")
+                    else:
+                        print("Ошибка при изменении данных")
+                else:
+                    print("Клиент не найден")
+
+            elif choice == "5":
+                client_id = int(input("Введите ID Клиента: "))
+                client = repository.get_client_by_id(client_id)  # Исправлено
+                if client:
+                    print("\nНайденный клиент:", client)
+                else:
+                    print("Клиент не найден.")
+
+            elif choice == "6":
+                k = int(input("Введите начальный элемент (k): "))
+                n = int(input("Введите количество элементов (n): "))
+                short_list = repository.get_k_n_short_list(k, n)  # Исправлено
+                print("\nКраткая информация о Клиентах:")
+                for client in short_list:
+                    print(str(client))
+
+            elif choice == "7":
+                count = repository.get_count()  # Исправлено
+                print(f"Количество Клиентов: {count}")
+
+            elif choice == "8":
+                print("Выход")
+                break
+            else:
+                print("Неверный выбор")
+
+        except ValueError as e:
+            print(f"Ошибка ввода: {e}")
+        except Exception as e:
+            print(f"Произошла ошибка: {e}")
+
+def run_prog():
+    storage_type = input("Выберите тип хранилища (db, json, yaml): ")
+    db_connector = None
+    try:
+        if storage_type == "db":
+            host = 'localhost'
+            user = 'postgres'
+            password = 'admin'
+            database = 'Clients'
+            db_connector = DatabaseConnector.get_instance(host, user, password, database)
+            if db_connector.connection is None:
+                print("Ошибка подключения к базе данных.")
+                return
+            client_rep = ClientRepDBAdapter(db_connector)
+            client_rep.db_rep.initialize_db()
+        elif storage_type == "json":
+            client_rep = ClientRepJSON()
+        elif storage_type == "yaml":
+            client_rep = ClientRepYAML()
+        else:
+            raise ValueError("Неподдерживаемый тип хранилища данных")
+        run_operations(client_rep)
+        if storage_type == "db" and db_connector:
+            db_connector.close()
+    except ValueError as e:
+        print(f"Ошибка: {e}")
+
+if __name__ == "__main__":
+   run_prog()
