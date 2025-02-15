@@ -1,0 +1,139 @@
+import re
+import json
+
+
+
+class Client:
+    def __init__(self, id, last_name, first_name, patronymic, address, phone):
+        self._id = id
+        self._last_name = self.validate_value(last_name, "фамилия", is_required=True, only_letters=True)
+        self._first_name = self.validate_value(first_name, "имя", is_required=True, only_letters=True)
+        self._patronymic = self.validate_value(patronymic, "отчество", is_required=False, only_letters=True)
+        self._address = self.validate_value(address, "адрес", is_required=True)
+        self._phone = self.validate_value(phone, "телефон", is_required=True, regex=r'^\+\d{1,3}\d{3}\d{3}\d{4}$')
+
+    @staticmethod
+    def validate_value(value, field_name, is_required=True, only_letters=False, regex=None):
+        if is_required and not value.strip():
+            raise ValueError(f"{field_name} не может быть пустой")
+
+        if only_letters and not value.replace(" ", "").isalpha():
+            raise ValueError(f"{field_name} может содержать только буквы")
+
+        if regex and not re.match(regex, value):
+            raise ValueError(f"Неверный формат {field_name}")
+
+        return value
+
+    @classmethod
+    def from_json(cls, json_str: str):
+        try:
+            data = json.loads(json_str)
+            required_fields = ['id', 'last_name', 'first_name', 'address', 'phone']
+
+            for field in required_fields:
+                if field not in data:
+                    raise ValueError(f"Отсутствует обязательное поле: {field}")
+
+            return cls(
+                id=data['id'],
+                last_name=data['last_name'],
+                first_name=data['first_name'],
+                patronymic=data.get('patronymic', ''),
+                address=data['address'],
+                phone=data['phone']
+            )
+        except json.JSONDecodeError:
+            raise ValueError("Неверный JSON формат")
+        except Exception as e:
+            raise ValueError(f"Ошибка создания клиента: {str(e)}")
+
+    # Геттеры и сеттеры
+    def get_id(self):
+        return self._id
+
+    def set_id(self, id):
+        self._id = id
+
+    def get_full_name(self):
+        return f"{self._last_name} {self._first_name} {self._patronymic}"
+
+    def get_last_name(self):
+        return self._last_name
+
+    def set_last_name(self, last_name):
+        self._last_name = last_name
+
+    def get_first_name(self):
+        return self._first_name
+
+    def set_first_name(self, first_name):
+        self._first_name = first_name
+
+    def get_patronymic(self):
+        return self._patronymic
+
+    def set_patronymic(self, patronymic):
+        self._patronymic = patronymic
+
+    def set_full_name(self, full_name):
+        names = full_name.split()
+        if len(names) < 2:
+            raise ValueError("ФИО должно содержать как минимум имя и Фамилию")
+
+        self.set_last_name(names[0])
+        self.set_first_name(names[1])
+        self.set_patronymic(' '.join(names[2:])) if len(names) > 2 else self.set_patronymic("")
+
+    def get_phone(self):
+        return self._phone
+
+    def set_phone(self, phone):
+        self._phone = phone
+
+    def get_address(self):
+        return self._address
+
+    def set_address(self, address):
+        self._address = address
+
+    def __str__(self):
+        return (f"Клиент(ID={self._id}, ФИО='{self.get_full_name()}', "
+                f"Адрес='{self._address}', Телефон='{self._phone}')")
+
+
+
+
+class ClientShort:
+    def __init__(self, client):
+        if not isinstance(client, Client):
+            raise TypeError("Требуется объект Client")
+        self._id = client.get_id()
+        self._name = client.get_full_name()
+        self._phone = client.get_phone()
+
+    def __str__(self):
+        return f"Клиент(ID={self._id}, ФИО='{self._name}', Тел: {self._phone})"
+
+
+# Пример использования
+client_json = '''{
+    "id": 1,
+    "last_name": "Миняйло",
+    "first_name": "Андрей",
+    "patronymic": "Андреевич",
+    "address": "ул. Ставропольская 149",
+    "phone": "+79000005150"
+}'''
+
+
+try:
+    client = Client.from_json(client_json)
+
+
+    print(client)
+
+    print(ClientShort(client))
+
+except ValueError as e:
+    print(f"Ошибка: {e}")
