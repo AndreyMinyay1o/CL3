@@ -52,7 +52,6 @@ class Client:
             if len(parts) != 5:
                 raise ValueError("Неправильный формат строки. Необходимо 5 значений c ;.")
             id, last_name, address, phone, first_name = parts
-            # Assuming _validate method exists or handle validation here
             self._id = int(id)
             self._last_name = last_name
             self._first_name = first_name
