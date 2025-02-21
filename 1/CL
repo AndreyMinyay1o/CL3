@@ -1,7 +1,5 @@
-import re
 import json
-
-
+import re
 
 class Client:
     def __init__(self, id, last_name, first_name, patronymic, address, phone):
@@ -48,6 +46,21 @@ class Client:
         except Exception as e:
             raise ValueError(f"Ошибка создания клиента: {str(e)}")
 
+    def _from_string(self, data_string):
+        try:
+            parts = data_string.split(';')
+            if len(parts) != 5:
+                raise ValueError("Неправильный формат строки. Необходимо 5 значений c ;.")
+            id, last_name, address, phone, first_name = parts
+            # Assuming _validate method exists or handle validation here
+            self._id = int(id)
+            self._last_name = last_name
+            self._first_name = first_name
+            self._address = address
+            self._phone = phone
+        except (ValueError, IndexError) as e:
+            raise ValueError(f"Ошибка разбора строки: {e}")
+
     # Геттеры и сеттеры
     def get_id(self):
         return self._id
@@ -83,7 +96,10 @@ class Client:
 
         self.set_last_name(names[0])
         self.set_first_name(names[1])
-        self.set_patronymic(' '.join(names[2:])) if len(names) > 2 else self.set_patronymic("")
+        if len(names) > 2:
+            self.set_patronymic(' '.join(names[2:]))
+        else:
+            self.set_patronymic("")
 
     def get_phone(self):
         return self._phone
@@ -101,9 +117,6 @@ class Client:
         return (f"Клиент(ID={self._id}, ФИО='{self.get_full_name()}', "
                 f"Адрес='{self._address}', Телефон='{self._phone}')")
 
-
-
-
 class ClientShort:
     def __init__(self, client):
         if not isinstance(client, Client):
@@ -115,7 +128,6 @@ class ClientShort:
     def __str__(self):
         return f"Клиент(ID={self._id}, ФИО='{self._name}', Тел: {self._phone})"
 
-
 # Пример использования
 client_json = '''{
     "id": 1,
@@ -126,14 +138,9 @@ client_json = '''{
     "phone": "+79000005150"
 }'''
 
-
 try:
     client = Client.from_json(client_json)
-
-
     print(client)
-
     print(ClientShort(client))
-
 except ValueError as e:
     print(f"Ошибка: {e}")
